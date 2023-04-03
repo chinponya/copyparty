@@ -131,7 +131,7 @@ RUN     /bin/ash /z/mini-fa.sh
 # build prismjs
 COPY    genprism.py /z
 COPY    genprism.sh /z
-RUN     ./genprism.sh $ver_prism
+RUN     ./genprism.sh prism-$ver_prism
 
 
 # compress

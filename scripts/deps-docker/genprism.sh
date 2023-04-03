@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 langs=(
@@ -59,7 +59,7 @@ slangs="${slangs// /+}"
 for theme in prism-funky prism ; do
     u="https://prismjs.com/download.html#themes=$theme&languages=$slangs&plugins=line-highlight+line-numbers+autolinker"
     echo "$u"
-    ./genprism.py --dir prism-$1 --js-out prism.js --css-out $theme.css "$u"
+    ./genprism.py --dir $1 --js-out prism.js --css-out $theme.css "$u"
 done
 
 mv prism-funky.css prismd.css
