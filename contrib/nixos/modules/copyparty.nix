@@ -39,20 +39,23 @@ let
     }}
   '';
 
-  passwordPlaceholder = name: "{{password-${name}}}";
-
-  accountsWithPlaceholders = mapAttrs (name: attrs: passwordPlaceholder name);
+  accountsWithPasswords = mapAttrs (name: attrs: attrs.passwordHash);
 
   configStr = ''
-    ${mkSection "global" cfg.settings}
-    ${mkSection "accounts" (accountsWithPlaceholders cfg.accounts)}
+    ${mkSection "global" (defaultGlobalSettings // cfg.settings)}
+    ${mkSection "accounts" (accountsWithPasswords cfg.accounts)}
     ${concatStringsSep "\n" (mapAttrsToList mkVolume cfg.volumes)}
   '';
+
+  defaultGlobalSettings = {
+    i = "127.0.0.1";
+    no-reload = true;
+    ah-alg = "argon2";
+  };
 
   name = "copyparty";
   cfg = config.services.copyparty;
   configFile = pkgs.writeText "${name}.conf" configStr;
-  runtimeConfigPath = "/run/${name}/${name}.conf";
   home = "/var/lib/${name}";
   defaultShareDir = "${home}/data";
 in {
@@ -81,14 +84,12 @@ in {
         Directly maps to values in the [global] section of the copyparty config.
         See `${getExe cfg.package} --help` for more details.
       '';
-      default = {
-        i = "127.0.0.1";
-        no-reload = true;
-      };
+      default = defaultGlobalSettings;
       example = literalExpression ''
         {
           i = "0.0.0.0";
           no-reload = true;
+          ah-alg = "sha2";
         }
       '';
     };
@@ -96,13 +97,13 @@ in {
     accounts = mkOption {
       type = types.attrsOf (types.submodule ({ ... }: {
         options = {
-          passwordFile = mkOption {
+          passwordHash = mkOption {
             type = types.str;
             description = ''
-              Runtime file path to a file containing the user password.
-              Must be readable by the copyparty user.
+              Hash of the password.
+              Generate with `${getExe cfg.package} --ah-alg ${cfg.settings.ah-alg} --ah-cli`.
             '';
-            example = "/run/keys/copyparty/ed";
+            example = "+il1ECuhNOOKLMd5Bys9vqCAMuzm9QoDT";
           };
         };
       }));
@@ -110,11 +111,6 @@ in {
         A set of copyparty accounts to create.
       '';
       default = { };
-      example = literalExpression ''
-        {
-          ed.passwordFile = "/run/keys/copyparty/ed";
-        };
-      '';
     };
 
     volumes = mkOption {
@@ -138,7 +134,7 @@ in {
                 "d" (delete): permanently delete files and folders
                 "g" (get):    download files, but cannot see folder contents
                 "G" (upget):  "get", but can see filekeys of their own uploads
-                "a" (upget):  can see uploader IPs, config-reload
+                "a" (admin):  can see uploader IPs, config-reload
 
               For example: "rwmd"
 
@@ -213,27 +209,13 @@ in {
         XDG_CONFIG_HOME = "${home}/.config";
       };
 
-      preStart = let
-        replaceSecretCommand = name: attrs:
-          "${getExe pkgs.replace-secret} '${
-            passwordPlaceholder name
-          }' '${attrs.passwordFile}' ${runtimeConfigPath}";
-      in ''
-        set -euo pipefail
-        install -m 600 ${configFile} ${runtimeConfigPath}
-        ${concatStringsSep "\n"
-        (mapAttrsToList replaceSecretCommand cfg.accounts)}
-      '';
-
       serviceConfig = {
         Type = "simple";
-        ExecStart = "${getExe cfg.package} -c ${runtimeConfigPath}";
+        ExecStart = "${getExe cfg.package} -c ${configFile}";
 
         # Hardening options
         User = "copyparty";
         Group = "copyparty";
-        RuntimeDirectory = name;
-        RuntimeDirectoryMode = "0700";
         StateDirectory = [ name "${name}/data" "${name}/.config" ];
         StateDirectoryMode = "0700";
         WorkingDirectory = home;
@@ -244,7 +226,7 @@ in {
           "-/etc/nsswitch.conf"
           "-/etc/hosts"
           "-/etc/localtime"
-        ] ++ (mapAttrsToList (k: v: "-${v.passwordFile}") cfg.accounts);
+        ];
         BindPaths = [ home ] ++ (mapAttrsToList (k: v: v.path) cfg.volumes);
         # Would re-mount paths ignored by temporary root
         #ProtectSystem = "strict";
